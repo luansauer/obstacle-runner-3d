@@ -1,62 +1,75 @@
+````
+# 01 - Arquitetura Técnica & Scripts
 
-## 1. PlayerController.cs
-Controla a movimentação tridimensional do personagem orientada pela visão da câmera, pulo com checagem de chão e física via Rigidbody.
+Documentação técnica dos scripts centrais, padrões de física via PhysX e calibração de câmera do projeto.
 
-### Código Base
+---
+
+## 1. Padrões de Projeto & Boas Práticas
+
+* **Ciclo de Atualização:** Leituras de input tratadas exclusivamente no `Update()`; cálculos vetoriais e forças aplicadas no `FixedUpdate()`.
+* **Encapsulamento:** Variáveis configuráveis utilizam `[SerializeField] private` com tooltips explicativos.
+* **Desacoplamento:** Componentes modulares focados em responsabilidade única (`PlayerController`, `Rotator`, `KillZone`).
+
+---
+
+## 2. Scripts do Projeto
+
+### 2.1 PlayerController.cs
+Controla a movimentação 3D orientada pela visão da câmera, pulo com checagem estável de chão e herança tangencial de velocidade de plataformas/obstáculos móveis via `Rigidbody`.
+
+#### Código C#
 ```csharp
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Movimentação")]
-    [SerializeField] private float moveSpeed = 7f;
-    [SerializeField] private float rotationSpeed = 10f;
+    [SerializeField] private float moveSpeed = 8f;
+    [SerializeField] private float rotationSpeed = 12f;
 
     [Header("Pulo & Chão")]
-    [SerializeField] private float jumpForce = 5f;
+    [SerializeField] private float jumpForce = 6f;
     [SerializeField] private Transform groundCheck;
-    [SerializeField] private float groundDistance = 0.2f;
+    [SerializeField] private float groundDistance = 0.25f;
     [SerializeField] private LayerMask groundMask;
 
     [Header("Câmera")]
     [SerializeField] private Transform cameraTransform;
 
     private Rigidbody rb;
-    private Vector2 inputVector;
+    private Vector2 moveInput;
     private bool isGrounded;
     private bool jumpRequested;
+
+    // Herança de velocidade para superfícies e obstáculos móveis
+    private Rigidbody groundRigidbody;
+    private Vector3 groundContactPoint;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
-        // Evita que colisões físicas tombem o personagem
         rb.freezeRotation = true;
+    }
+
+    private void Start()
+    {
+        if (cameraTransform == null && Camera.main != null)
+        {
+            cameraTransform = Camera.main.transform;
+        }
     }
 
     private void Update()
     {
-        // 1. Leitura de inputs (sempre no Update)
-        float horizontal = Input.GetAxisRaw("Horizontal");
-        float vertical = Input.GetAxisRaw("Vertical");
-        inputVector = new Vector2(horizontal, vertical).normalized;
-
-        // 2. Verificação de chão via esfera
-        if (groundCheck != null)
-        {
-            isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
-        }
-
-        // 3. Captura do pulo
-        if (Input.GetButtonDown("Jump") && isGrounded)
-        {
-            jumpRequested = true;
-        }
+        ReadInputs();
+        CheckGround();
     }
 
     private void FixedUpdate()
     {
-        // Movimentação e física (sempre no FixedUpdate)
         MovePlayer();
 
         if (jumpRequested)
@@ -66,11 +79,70 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    private void CheckGround()
+    {
+        if (groundCheck == null) return;
+
+        RaycastHit hit;
+        if (Physics.SphereCast(groundCheck.position + Vector3.up * 0.1f, groundDistance, Vector3.down, out hit, groundDistance * 2f, groundMask))
+        {
+            isGrounded = true;
+            groundRigidbody = hit.rigidbody;
+            groundContactPoint = hit.point;
+        }
+        else
+        {
+            isGrounded = false;
+            groundRigidbody = null;
+        }
+    }
+
+    private void ReadInputs()
+    {
+        Vector2 input = Vector2.zero;
+
+        // Leitura via Teclado
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) input.y += 1f;
+            if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) input.y -= 1f;
+            if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) input.x -= 1f;
+            if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) input.x += 1f;
+
+            if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded)
+            {
+                jumpRequested = true;
+            }
+        }
+
+        // Leitura via Gamepad
+        if (Gamepad.current != null)
+        {
+            Vector2 stick = Gamepad.current.leftStick.ReadValue();
+            if (stick.sqrMagnitude > 0.04f)
+            {
+                input = stick;
+            }
+
+            if (Gamepad.current.buttonSouth.wasPressedThisFrame && isGrounded)
+            {
+                jumpRequested = true;
+            }
+        }
+
+        moveInput = input.normalized;
+    }
+
     private void MovePlayer()
     {
-        if (inputVector.magnitude >= 0.1f)
+        Vector3 platformVelocity = Vector3.zero;
+        if (isGrounded && groundRigidbody != null)
         {
-            // Direção baseada na orientação da câmera
+            platformVelocity = groundRigidbody.GetPointVelocity(groundContactPoint);
+        }
+
+        if (moveInput.magnitude >= 0.1f)
+        {
             Vector3 camForward = cameraTransform.forward;
             Vector3 camRight = cameraTransform.right;
             camForward.y = 0;
@@ -78,20 +150,27 @@ public class PlayerController : MonoBehaviour
             camForward.Normalize();
             camRight.Normalize();
 
-            Vector3 moveDirection = (camForward * inputVector.y + camRight * inputVector.x).normalized;
-
-            // Aplica velocidade horizontal mantendo a velocidade vertical (gravidade/pulo)
+            Vector3 moveDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
             Vector3 targetVelocity = moveDirection * moveSpeed;
-            rb.linearVelocity = new Vector3(targetVelocity.x, rb.linearVelocity.y, targetVelocity.z);
 
-            // Suaviza a rotação do personagem para onde ele está andando
+            // Combina o vetor do jogador à velocidade tangencial da superfície
+            rb.linearVelocity = new Vector3(
+                targetVelocity.x + platformVelocity.x,
+                rb.linearVelocity.y,
+                targetVelocity.z + platformVelocity.z
+            );
+
             Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.fixedDeltaTime);
         }
         else
         {
-            // Zera o deslize horizontal quando não há input
-            rb.linearVelocity = new Vector3(0, rb.linearVelocity.y, 0);
+            // Transfere o impulso do chão mesmo sem comandos do jogador
+            rb.linearVelocity = new Vector3(
+                platformVelocity.x,
+                rb.linearVelocity.y,
+                platformVelocity.z
+            );
         }
     }
 
@@ -101,84 +180,145 @@ public class PlayerController : MonoBehaviour
         rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
     }
 }
+````
 
-using UnityEngine;
+### 2.2 Rotator.cs
 
-public class Rotator : MonoBehaviour
-{
-    [SerializeField] private Vector3 rotationSpeed = new Vector3(0, 90f, 0);
+Controla a rotação de obstáculos cinemáticos (como cilindros horizontais ou hélices). Aplica rotação via `Rigidbody.MoveRotation` dentro do ciclo físico para transmitir momento linear aos corpos que colidem com a superfície.
 
-    private void Update()
-    {
-        transform.Rotate(rotationSpeed * Time.deltaTime);
-    }
-}
-```
-``
-## 2. Rotator.cs
+  
 
-Script C# acoplado aos obstáculos móveis (como cilindros horizontais ou hélices). Gira o objeto continuamente no próprio eixo usando o tempo delta para manter rotação constante independente da taxa de quadros (FPS).
-
-### Código C#
+#### Código C#
 
 C#
 
 ```
 using UnityEngine;
 
+[RequireComponent(typeof(Rigidbody))]
 public class Rotator : MonoBehaviour
 {
     [Header("Configuração de Rotação")]
-    [Tooltip("Eixos e velocidade de rotação em graus por segundo")]
-    [SerializeField] private Vector3 rotationSpeed = new Vector3(0f, 90f, 0f);
+    [Tooltip("Eixo de rotação local ou global normalizado")]
+    [SerializeField] private Vector3 rotationAxis = new Vector3(0, 1, 0);
 
-    private void Update()
+    [Tooltip("Velocidade de rotação em graus por segundo")]
+    [SerializeField] private float speed = 90f;
+
+    private Rigidbody rb;
+
+    private void Awake()
     {
-        // Aplica rotação contínua proporcional ao tempo do frame
-        transform.Rotate(rotationSpeed * Time.deltaTime);
+        rb = GetComponent<Rigidbody>();
+        rb.isKinematic = true;
+    }
+
+    private void FixedUpdate()
+    {
+        Quaternion deltaRotation = Quaternion.Euler(rotationAxis.normalized * (speed * Time.fixedDeltaTime));
+        rb.MoveRotation(rb.rotation * deltaRotation);
     }
 }
 ```
 
-## 3. Killzone.cs
+### 2.3 KillZone.cs
 
-Script C# acoplado a um colisor com a caixa **Is Trigger** ativada, posicionado logo abaixo da pista. Detecta quando o jogador cai no abismo, anula sua velocidade acumulada e o reposiciona no ponto de spawn.
+Acoplado a um colisor com `Is Trigger = true`, posicionado na zona de queda (`Y: -15`). Detecta a queda do jogador, anula sua velocidade acumulada e o reposiciona no ponto de spawn ativo.
 
-### Código C#
+  
+
+#### Código C#
 
 C#
 
 ```
 using UnityEngine;
 
-public class Killzone : MonoBehaviour
+public class KillZone : MonoBehaviour
 {
     [Header("Referência de Respawn")]
-    [Tooltip("Objeto vazio que marca a posição onde o jogador deve reaparecer")]
-    [SerializeField] private Transform spawnPoint;
+    [Tooltip("Ponto ou coordenadas para onde o jogador deve retornar ao cair")]
+    [SerializeField] private Vector3 respawnPosition = new Vector3(0, 1.5f, -40f);
 
     private void OnTriggerEnter(Collider other)
     {
-        // Verifica se o objeto que caiu possui a tag Player
         if (other.CompareTag("Player"))
         {
-            // Zera qualquer inércia e aceleração residual da queda
-            Rigidbody playerRb = other.GetComponent<Rigidbody>();
-            if (playerRb != null)
+            if (other.TryGetComponent<Rigidbody>(out var rb))
             {
-                playerRb.linearVelocity = Vector3.zero;
-                playerRb.angularVelocity = Vector3.zero;
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
             }
 
-            // Reposiciona o jogador no ponto de spawn
-            other.transform.position = spawnPoint.position;
+            other.transform.position = respawnPosition;
         }
+    }
+
+    // Permite atualização dinâmica por checkpoints futuros
+    public void SetRespawnPosition(Vector3 newPosition)
+    {
+        respawnPosition = newPosition;
     }
 }
 ```
 
+## 3. Calibração da Câmera Orbital (Cinemachine 3)
+
+Configuração no `CinemachineCamera` para visão em terceira pessoa estável sem travamento de ângulo:
+
+  
+
+- **Binding Mode:** `World Space`
+    
+      
+    
+- **Rotation Control:** `Rotation Composer` com `Target Offset Y = 0.7`
+    
+      
+    
+- **Horizontal Axis:** Range `-180` a `180` com `Wrap: Ativado`
+    
+      
+    
+- **Vertical Axis:** Range `-25` a `60` com `Wrap: Desativado`
+    
+      
+    
+- **Three Ring Orbit:**
+    
+      
+    - **Top:** Height `6.0` | Radius `6.5`
+        
+          
+        
+    - **Center:** Height `2.5` | Radius `6.0`
+        
+          
+        
+    - **Bottom:** Height `-2.0` | Radius `2.0` (aproximação automática nos calcanhares ao olhar rente ao chão)
+        
+          
+        
+
+## 4. Atrito & Materiais Físicos
+
+Para eliminar escorregamentos involuntários nas quinas do cilindro giratório:
+
+  
+
+- **Physics Material:** `HighFrictionMat` aplicado no `Capsule Collider` do Player e no do obstáculo.
+    
+      
+    
+- **Valores:** `Dynamic Friction: 1.0`, `Static Friction: 1.0`, `Friction Combine: Maximum`.
+    
+      
+    
+
 ## Links
 
-- Voltar para [[00 - GDD]]
+- Voltar para [[docs/00 - GDD]]
     
-- Ir para [[02 - Devlog]]
+      
+    
+- Ir para [[docs/02 - Devlog]]
