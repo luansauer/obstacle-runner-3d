@@ -1,4 +1,3 @@
-````
 # 01 - Arquitetura Técnica & Scripts
 
 Documentação técnica dos scripts centrais, padrões de física via PhysX e calibração de câmera do projeto.
@@ -31,10 +30,14 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float rotationSpeed = 12f;
 
     [Header("Pulo & Chão")]
-    [SerializeField] private float jumpForce = 6f;
+    [SerializeField] private float jumpForce = 7f;
     [SerializeField] private Transform groundCheck;
-    [SerializeField] private float groundDistance = 0.25f;
+    [SerializeField] private float groundCheckRadius = 0.2f;
+    [SerializeField] private float groundCheckDistance = 0.35f;
     [SerializeField] private LayerMask groundMask;
+
+    [Header("Estado")]
+    [SerializeField] private bool canMove = true;
 
     [Header("Câmera")]
     [SerializeField] private Transform cameraTransform;
@@ -42,11 +45,15 @@ public class PlayerController : MonoBehaviour
     private Rigidbody rb;
     private Vector2 moveInput;
     private bool isGrounded;
-    private bool jumpRequested;
+    private float jumpBufferTime = 0.15f;
+    private float jumpBufferCounter;
+    private float jumpCooldown = 0.1f;
+    private float jumpCooldownTimer;
 
-    // Herança de velocidade para superfícies e obstáculos móveis
+    // Suporte a plataformas / superfícies móveis e giratórias
     private Rigidbody groundRigidbody;
     private Vector3 groundContactPoint;
+    private bool collisionGrounded;
 
     private void Awake()
     {
@@ -70,21 +77,59 @@ public class PlayerController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        if (jumpCooldownTimer > 0f)
+        {
+            jumpCooldownTimer -= Time.fixedDeltaTime;
+        }
+
         MovePlayer();
 
-        if (jumpRequested)
+        if (jumpBufferCounter > 0f && isGrounded && jumpCooldownTimer <= 0f)
         {
             Jump();
-            jumpRequested = false;
+        }
+
+        if (jumpBufferCounter > 0f)
+        {
+            jumpBufferCounter -= Time.fixedDeltaTime;
         }
     }
 
     private void CheckGround()
     {
-        if (groundCheck == null) return;
+        if (jumpCooldownTimer > 0f)
+        {
+            isGrounded = false;
+            return;
+        }
+
+        // Se OnCollisionStay detectou chão estável no FixedUpdate anterior
+        if (collisionGrounded)
+        {
+            isGrounded = true;
+            collisionGrounded = false; // Reset para o próximo ciclo de física
+            return;
+        }
+
+        Vector3 origin;
+        if (groundCheck != null)
+        {
+            // Começa 0.3m ACIMA do pé para nunca iniciar dentro do colisor (evita o bug de overlap inicial)
+            origin = groundCheck.position + Vector3.up * 0.3f;
+        }
+        else
+        {
+            origin = transform.position;
+        }
 
         RaycastHit hit;
-        if (Physics.SphereCast(groundCheck.position + Vector3.up * 0.1f, groundDistance, Vector3.down, out hit, groundDistance * 2f, groundMask))
+        if (Physics.SphereCast(origin, groundCheckRadius, Vector3.down, out hit, groundCheckDistance, groundMask, QueryTriggerInteraction.Ignore))
+        {
+            isGrounded = true;
+            groundRigidbody = hit.rigidbody;
+            groundContactPoint = hit.point;
+        }
+        else if (Physics.Raycast(origin, Vector3.down, out hit, groundCheckDistance + groundCheckRadius, groundMask, QueryTriggerInteraction.Ignore))
         {
             isGrounded = true;
             groundRigidbody = hit.rigidbody;
@@ -97,11 +142,46 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    private void OnCollisionStay(Collision collision)
+    {
+        if (jumpCooldownTimer > 0f) return;
+
+        // Avalia os pontos de contato físicos
+        for (int i = 0; i < collision.contactCount; i++)
+        {
+            ContactPoint contact = collision.GetContact(i);
+            // Normal apontando para cima (chão ou topo de obstáculo transitável)
+            if (contact.normal.y > 0.45f)
+            {
+                isGrounded = true;
+                collisionGrounded = true;
+                groundRigidbody = collision.rigidbody;
+                groundContactPoint = contact.point;
+                break;
+            }
+        }
+    }
+
+    private void OnCollisionExit(Collision collision)
+    {
+        if (groundRigidbody == collision.rigidbody)
+        {
+            collisionGrounded = false;
+            groundRigidbody = null;
+        }
+    }
+
     private void ReadInputs()
     {
+        if (!canMove)
+        {
+            moveInput = Vector2.zero;
+            jumpBufferCounter = 0f;
+            return;
+        }
+
         Vector2 input = Vector2.zero;
 
-        // Leitura via Teclado
         if (Keyboard.current != null)
         {
             if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) input.y += 1f;
@@ -109,13 +189,12 @@ public class PlayerController : MonoBehaviour
             if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) input.x -= 1f;
             if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) input.x += 1f;
 
-            if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded)
+            if (Keyboard.current.spaceKey.wasPressedThisFrame)
             {
-                jumpRequested = true;
+                jumpBufferCounter = jumpBufferTime;
             }
         }
 
-        // Leitura via Gamepad
         if (Gamepad.current != null)
         {
             Vector2 stick = Gamepad.current.leftStick.ReadValue();
@@ -124,9 +203,9 @@ public class PlayerController : MonoBehaviour
                 input = stick;
             }
 
-            if (Gamepad.current.buttonSouth.wasPressedThisFrame && isGrounded)
+            if (Gamepad.current.buttonSouth.wasPressedThisFrame)
             {
-                jumpRequested = true;
+                jumpBufferCounter = jumpBufferTime;
             }
         }
 
@@ -139,6 +218,14 @@ public class PlayerController : MonoBehaviour
         if (isGrounded && groundRigidbody != null)
         {
             platformVelocity = groundRigidbody.GetPointVelocity(groundContactPoint);
+
+            // Herança de rotação angular da plataforma (para carrosséis / plataformas giratórias no eixo Y)
+            float platformYawSpeed = Vector3.Dot(groundRigidbody.angularVelocity, Vector3.up);
+            if (Mathf.Abs(platformYawSpeed) > 0.001f)
+            {
+                Quaternion deltaYaw = Quaternion.Euler(0f, platformYawSpeed * Mathf.Rad2Deg * Time.fixedDeltaTime, 0f);
+                rb.MoveRotation(deltaYaw * rb.rotation);
+            }
         }
 
         if (moveInput.magnitude >= 0.1f)
@@ -153,7 +240,7 @@ public class PlayerController : MonoBehaviour
             Vector3 moveDirection = (camForward * moveInput.y + camRight * moveInput.x).normalized;
             Vector3 targetVelocity = moveDirection * moveSpeed;
 
-            // Combina o vetor do jogador à velocidade tangencial da superfície
+            // Soma a velocidade do jogador à velocidade tangencial da superfície
             rb.linearVelocity = new Vector3(
                 targetVelocity.x + platformVelocity.x,
                 rb.linearVelocity.y,
@@ -176,11 +263,35 @@ public class PlayerController : MonoBehaviour
 
     private void Jump()
     {
-        rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
-        rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+        jumpBufferCounter = 0f;
+        jumpCooldownTimer = jumpCooldown;
+        isGrounded = false;
+        collisionGrounded = false;
+
+        // Pulo consistente e responsivo (define a velocidade vertical mantendo o momento horizontal)
+        rb.linearVelocity = new Vector3(rb.linearVelocity.x, jumpForce, rb.linearVelocity.z);
+    }
+
+    public void SetInputActive(bool active)
+    {
+        canMove = active;
+        if (!active)
+        {
+            moveInput = Vector2.zero;
+            jumpBufferCounter = 0f;
+        }
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        Vector3 origin = (groundCheck != null) ? groundCheck.position + Vector3.up * 0.3f : transform.position;
+        Gizmos.color = isGrounded ? Color.green : Color.red;
+        Gizmos.DrawWireSphere(origin, groundCheckRadius);
+        Gizmos.DrawLine(origin, origin + Vector3.down * groundCheckDistance);
+        Gizmos.DrawWireSphere(origin + Vector3.down * groundCheckDistance, groundCheckRadius);
     }
 }
-````
+```
 
 ### 2.2 Rotator.cs
 
@@ -190,22 +301,26 @@ Controla a rotação de obstáculos cinemáticos (como cilindros horizontais ou 
 
 #### Código C#
 
-C#
-
-```
+```csharp
 using UnityEngine;
 
 [RequireComponent(typeof(Rigidbody))]
 public class Rotator : MonoBehaviour
 {
     [Header("Configuração de Rotação")]
-    [Tooltip("Eixo de rotação local ou global normalizado")]
+    [Tooltip("Eixo de rotação local normalizado")]
     [SerializeField] private Vector3 rotationAxis = new Vector3(0, 1, 0);
 
     [Tooltip("Velocidade de rotação em graus por segundo")]
     [SerializeField] private float speed = 90f;
 
+    [Tooltip("Se marcado, a rotação usa os eixos locais do objeto; se desmarcado, usa eixos globais.")]
+    [SerializeField] private bool useLocalAxis = true;
+
     private Rigidbody rb;
+
+    public float Speed => speed;
+    public Vector3 RotationAxis => rotationAxis;
 
     private void Awake()
     {
@@ -215,8 +330,22 @@ public class Rotator : MonoBehaviour
 
     private void FixedUpdate()
     {
-        Quaternion deltaRotation = Quaternion.Euler(rotationAxis.normalized * (speed * Time.fixedDeltaTime));
-        rb.MoveRotation(rb.rotation * deltaRotation);
+        Vector3 worldAxis;
+        if (useLocalAxis)
+        {
+            Quaternion deltaRotation = Quaternion.Euler(rotationAxis.normalized * (speed * Time.fixedDeltaTime));
+            rb.MoveRotation(rb.rotation * deltaRotation);
+            worldAxis = transform.TransformDirection(rotationAxis.normalized);
+        }
+        else
+        {
+            worldAxis = rotationAxis.normalized;
+            Quaternion deltaRotation = Quaternion.Euler(worldAxis * (speed * Time.fixedDeltaTime));
+            rb.MoveRotation(deltaRotation * rb.rotation);
+        }
+
+        // Define a velocidade angular para transmissão de momento ao Player (GetPointVelocity)
+        rb.angularVelocity = worldAxis * (speed * Mathf.Deg2Rad);
     }
 }
 ```
@@ -229,9 +358,7 @@ Acoplado a um colisor com `Is Trigger = true`, posicionado na zona de queda (`Y:
 
 #### Código C#
 
-C#
-
-```
+```csharp
 using UnityEngine;
 
 public class KillZone : MonoBehaviour
@@ -258,6 +385,97 @@ public class KillZone : MonoBehaviour
     public void SetRespawnPosition(Vector3 newPosition)
     {
         respawnPosition = newPosition;
+    }
+}
+```
+
+
+### 2.4 FinishLine.cs
+
+Gatilho posicionado na linha de chegada para marcar a conclusão do percurso. Detecta o jogador via tag, dispara eventos desacoplados via `UnityEvent` e opcionalmente desativa os comandos de movimentação do jogador.
+
+#### Código C#
+
+```csharp
+using UnityEngine;
+using UnityEngine.Events;
+
+[RequireComponent(typeof(Collider))]
+public class FinishLine : MonoBehaviour
+{
+    [Header("Configurações do Gatilho")]
+    [Tooltip("Tag usada para identificar o jogador")]
+    [SerializeField] private string playerTag = "Player";
+
+    [Tooltip("Desativa os comandos do jogador ao cruzar a linha de chegada")]
+    [SerializeField] private bool disablePlayerControlsOnFinish = true;
+
+    [Header("Eventos de Conclusão")]
+    [Tooltip("Ações disparadas quando o jogador alcança a linha de chegada")]
+    [SerializeField] private UnityEvent onPlayerFinished;
+
+    [Header("Debug Visual")]
+    [SerializeField] private Color gizmoColor = new Color(0f, 1f, 0f, 0.4f);
+
+    private bool isFinished = false;
+
+    public bool IsFinished => isFinished;
+
+    private void Awake()
+    {
+        Collider col = GetComponent<Collider>();
+        if (col != null && !col.isTrigger)
+        {
+            col.isTrigger = true;
+            Debug.LogWarning($"[FinishLine] O Collider em '{gameObject.name}' foi alterado para 'Is Trigger = true' automaticamente.");
+        }
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        if (isFinished) return;
+
+        if (other.CompareTag(playerTag))
+        {
+            isFinished = true;
+            Debug.Log("[FinishLine] 🏆 O jogador cruzou a linha de chegada!");
+
+            if (disablePlayerControlsOnFinish)
+            {
+                if (other.TryGetComponent<PlayerController>(out var playerController))
+                {
+                    playerController.SetInputActive(false);
+                }
+
+                if (other.TryGetComponent<Rigidbody>(out var rb))
+                {
+                    rb.linearVelocity = new Vector3(0f, rb.linearVelocity.y, 0f);
+                }
+            }
+
+            onPlayerFinished?.Invoke();
+        }
+    }
+
+    public void ResetFinishLine()
+    {
+        isFinished = false;
+    }
+
+    private void OnDrawGizmos()
+    {
+        Collider col = GetComponent<Collider>();
+        if (col == null) return;
+
+        Gizmos.color = gizmoColor;
+        Gizmos.matrix = transform.localToWorldMatrix;
+
+        if (col is BoxCollider box)
+        {
+            Gizmos.DrawCube(box.center, box.size);
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireCube(box.center, box.size);
+        }
     }
 }
 ```
@@ -322,3 +540,7 @@ Para eliminar escorregamentos involuntários nas quinas do cilindro giratório:
       
     
 - Ir para [[docs/02 - Devlog]]
+### 2.5 Mec�nicas Avan�adas (Sess�o 04)
+- **Air Dive**: Implementado em `PlayerController` como pulo duplo (`PerformDive`), aplicando impulso horizontal e pequeno *boost* vertical.
+- **Wall Grab & Slide**: Detectado via `SphereCast` contra a `grabbableMask`. Congela a velocidade vertical em `wallSlideSpeed` ou baseia-se no script `GrabbableSurface.cs`, permitindo `WallJump`.
+- **Knockback/Impacto**: For�as externas s�o agora tratadas com decaimento exponencial, permitindo que obst�culos como p�ndulos arremessem o jogador sem serem imediatamente anulados por `targetVelocity`.

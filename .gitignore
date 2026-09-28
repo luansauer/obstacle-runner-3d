@@ -106,3 +106,9 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ss]ceneDependencyCache*
 
 .obsidian/
+
+Obstacle Runner 3D/
+
+# Unity crash recovery auto-generated folders
+**/[Aa]ssets/_Recovery/
+**/[Aa]ssets/_Recovery.meta

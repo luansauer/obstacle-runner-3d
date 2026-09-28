@@ -2,19 +2,46 @@ using UnityEngine;
 
 public class KillZone : MonoBehaviour
 {
+    [Header("Referência de Respawn")]
+    [Tooltip("Ponto ou coordenadas para onde o jogador deve retornar ao cair")]
     [SerializeField] private Vector3 respawnPosition = new Vector3(0, 1.5f, -40f);
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
-            if (other.TryGetComponent<Rigidbody>(out var rb))
-            {
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-            }
+        HandleKill(other.gameObject);
+    }
 
-            other.transform.position = respawnPosition;
+    private void OnCollisionEnter(Collision collision)
+    {
+        HandleKill(collision.gameObject);
+    }
+
+    private void HandleKill(GameObject target)
+    {
+        if (target.CompareTag("Player"))
+        {
+            if (target.TryGetComponent<PlayerController>(out var player))
+            {
+                player.Respawn(respawnPosition);
+            }
+            else
+            {
+                if (target.TryGetComponent<Rigidbody>(out var rb))
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+
+                target.transform.position = respawnPosition;
+            }
         }
+    }
+
+    /// <summary>
+    /// Permite atualização dinâmica por checkpoints futuros.
+    /// </summary>
+    public void SetRespawnPosition(Vector3 newPosition)
+    {
+        respawnPosition = newPosition;
     }
 }

@@ -1,7 +1,8 @@
 # Diretrizes do Projeto: Obstacle Runner 3D
 
-## Stack Técnica
-- Engine: Unity (LTS - URP)
+## Stack Técnica & Estrutura
+- Engine: Unity 6 (6000.x - URP)
+- Diretório do Projeto Unity: `game/` (scripts em `game/Assets/_project/Scripts/`)
 - Linguagem: C#
 - Física: Rigidbody 3D
 - Câmera: Unity Cinemachine (3ª pessoa orbital)
