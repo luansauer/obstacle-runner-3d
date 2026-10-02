@@ -22,7 +22,7 @@ public class KillZone : MonoBehaviour
         {
             if (target.TryGetComponent<PlayerController>(out var player))
             {
-                player.Respawn(respawnPosition);
+                player.Die();
             }
             else
             {
@@ -35,13 +35,5 @@ public class KillZone : MonoBehaviour
                 target.transform.position = respawnPosition;
             }
         }
-    }
-
-    /// <summary>
-    /// Permite atualização dinâmica por checkpoints futuros.
-    /// </summary>
-    public void SetRespawnPosition(Vector3 newPosition)
-    {
-        respawnPosition = newPosition;
     }
 }

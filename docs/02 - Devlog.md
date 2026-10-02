@@ -61,7 +61,7 @@ Registro contínuo de progresso, decisões técnicas, problemas encontrados e so
 
 ---
 
-## 📅 Sessão 05 — Level Design de Gosmas, Wall Jump Orgânico e KillZone Físico
+## � Sessão 05 — Level Design de Gosmas, Wall Jump Orgânico e KillZone Físico
 ### O que foi feito:
 * **Fim do Wall Grab por botão:** Implementação de auto-grab puramente físico (baseado na detecção pelo `OnCollisionStay` filtrando normais de parede entre `-0.1f` e `0.25f`), dispensando o uso de Raycasts baseados em câmera e input de botão.
 * **Movimentação ao redor de Paredes:** Implementado movimento horizontal deslizando pela parede usando cruzamento vetorial do plano normal da parede com a câmera. Deslize vertical acelerado (segurar para baixo) ou freiado (segurar para cima).
@@ -77,9 +77,19 @@ Registro contínuo de progresso, decisões técnicas, problemas encontrados e so
 
 ---
 
-## 📌 Próximos Passos (Sessão 06)
-- [ ] Implementar obstáculo de martelo/pêndulo oscilante (`Pendulum.cs`) — Issue #6.
-- [ ] Implementar sistema modular de checkpoints dinâmicos com respawn (`Checkpoint.cs`) — Issue #7.
+## 📅 Sessão 06 — Obstáculos Físicos e Checkpoints
+### O que foi feito:
+* **Pêndulo Físico (`Pendulum.cs`):** Implementado obstáculo de balanço infinito via função senoidal (`Mathf.Sin`) com `rb.MoveRotation()`.
+* **Polimento de Knockback:** Atualizado método `AddImpact()` do `PlayerController.cs` para aceitar forçar verticais (`Y`), garantindo que o jogador levante voo ao tomar hits de obstáculos físicos pesados.
+* **Sistema Modular de Checkpoints (`Checkpoint.cs`):** 
+  * Refatorado para inverter a dependência: O player agora gerencia o próprio `currentRespawnPosition`.
+  * Bandeiras atualizam globalmente o ponto de retorno e alteram arrays de materiais como feedback visual.
+* **Pistão Empurrador (`Piston.cs`):** Script de rotina (Coroutine) que realiza socos agressivos e recuos lentos, capaz de arremessar o player. Marcado para validação do level design na próxima sessão.
+
+---
+
+## 📌 Próximos Passos (Sessão 07)
+- [ ] Validar colisão e timing do Piston.cs no cenário.
 - [ ] Implementar temporizador de corrida e contagem regressiva 3, 2, 1, GO! (`GameTimer.cs`) — Issue #8.
 
 ## Links

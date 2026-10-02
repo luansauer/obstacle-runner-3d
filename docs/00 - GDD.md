@@ -36,14 +36,14 @@
 
 ### 3.1 Em Produção / Validados
 * **Barra Giratória / Sweeper (`Rotator.cs`):** Cilindro horizontal posicionado na pista rodando de forma contínua via `rb.MoveRotation()`, transferindo velocidade tangencial por atrito elevado.
-* **Zona de Queda (`KillZone.cs`):** Gatilho que captura quedas no abismo e reseta as coordenadas do player no spawn/checkpoint.
-* **Linha de Chegada (`FinishLine.cs`):** Gatilho de conclusão do percurso que detecta vitória, desativa inputs do jogador e dispara eventos de fim de fase.
-
-### 3.2 Próximas Implementações
 * **Pêndulo Físico Oscilante (Hammer / Pendulum - `Pendulum.cs`):** Martelo oscilando perpendicularmente à pista por função senoidal em `FixedUpdate`.
-* **Checkpoints Modulares Dinâmicos (`Checkpoint.cs`):** Totens/plataformas intermediárias que atualizam dinamicamente o ponto de respawn no `KillZone`.
+* **Zona de Queda / Gosma Roxa (`KillZone.cs`):** Colisor ou Gatilho que captura quedas no abismo e reseta as coordenadas do player no spawn/checkpoint.
+* **Linha de Chegada (`FinishLine.cs`):** Gatilho de conclusão do percurso que detecta vitória, desativa inputs do jogador e dispara eventos de fim de fase.
+* **Checkpoints Modulares Dinâmicos (`Checkpoint.cs`):** Totens/plataformas intermediárias que atualizam dinamicamente o ponto de respawn.
+
+### 3.2 Próximas Implementações / Validações
+* **Parede-Soco / Pistão (`Piston.cs`):** *[Pendente de Validação]* Obstáculo estático que ataca o jogador com um golpe rápido linear e recua lentamente. Usa Coroutines para cadência rítmica.
 * **Temporizador & Contagem Regressiva (`GameTimer.cs`):** Sistema de largada 3, 2, 1, GO! com congelamento temporário de input e cronômetro de conclusão.
-* **Pistão Empurrador:** Bloco que avança e recua periodicamente em linha reta.
 * **Gangorra Suspensa (See-Saw):** Plataformas articuladas com `Hinge Joint` que reagem dinamicamente à massa do jogador.
 * **Portas Falsas:** Três portas lado a lado onde apenas uma possui colisor físico com física de quebra/abertura.
 

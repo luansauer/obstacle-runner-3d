@@ -58,10 +58,15 @@ public class PlayerController : MonoBehaviour
     private float wallJumpCooldownTimer;
     private Vector3 wallNormal;
     private Vector3 lastWallJumpNormal;
+    private Collider lastWallCollider;
+    private Collider currentWallCollider;
     private GrabbableSurface currentGrabbableSurface;
 
     // External forces / Knockback
     private Vector3 externalForce;
+
+    [Header("Checkpoint System")]
+    public Vector3 currentRespawnPosition;
 
     // Suporte a plataformas / superfícies móveis e giratórias
     private Rigidbody groundRigidbody;
@@ -100,6 +105,11 @@ public class PlayerController : MonoBehaviour
         if (cameraTransform == null && Camera.main != null)
         {
             cameraTransform = Camera.main.transform;
+        }
+
+        if (currentRespawnPosition == Vector3.zero)
+        {
+            currentRespawnPosition = transform.position;
         }
     }
 
@@ -165,7 +175,7 @@ public class PlayerController : MonoBehaviour
             {
                 Jump();
             }
-            else if (!isGrounded && !hasAirDived && !isGrabbingWall && hasJumped)
+            else if (!isGrounded && !hasAirDived && !isGrabbingWall)
             {
                 PerformDive();
             }
@@ -236,7 +246,8 @@ public class PlayerController : MonoBehaviour
             hasJumped = false;
             isGrabbingWall = false;
             wallGrabGraceTimer = 0f;
-            lastWallJumpNormal = Vector3.zero; // Libera o pulo na parede
+            lastWallJumpNormal = Vector3.zero;
+            lastWallCollider = null;
 
             // Aterrissagem do mergulho
             if (isDiving && !wasGrounded && slideRecoveryTimer <= 0f)
@@ -270,11 +281,16 @@ public class PlayerController : MonoBehaviour
             // Parede Vertical Agarrável
             else if (!isGrounded && contact.normal.y >= -0.1f && contact.normal.y <= 0.25f)
             {
+                // Bloqueia grudar na mesma parede (pelo Colisor) ou em paredes que apontam pra exata mesma direção normal
+                if (collision.collider == lastWallCollider || Vector3.Dot(contact.normal, lastWallJumpNormal) > 0.8f)
+                    continue;
+
                 if ((grabbableMask.value & (1 << collision.gameObject.layer)) > 0)
                 {
                     touchedWallThisFrame = true;
                     wallNormal = contact.normal;
                     horizontalFacing = -wallNormal;
+                    currentWallCollider = collision.collider;
                     collision.collider.TryGetComponent(out currentGrabbableSurface);
                 }
             }
@@ -535,8 +551,8 @@ public class PlayerController : MonoBehaviour
         isDiving = false;
         hasJumped = true;
 
-        // Registra a parede que usamos para pular, assim o jogador não pode grudar nela de novo!
         lastWallJumpNormal = wallNormal;
+        lastWallCollider = currentWallCollider;
 
         Vector3 jumpDir = wallNormal;
         horizontalFacing = jumpDir;
@@ -554,7 +570,11 @@ public class PlayerController : MonoBehaviour
 
     public void AddImpact(Vector3 force)
     {
-        externalForce += force;
+        externalForce += new Vector3(force.x, 0f, force.z);
+        if (force.y != 0f && rb != null)
+        {
+            rb.linearVelocity = new Vector3(rb.linearVelocity.x, rb.linearVelocity.y + force.y, rb.linearVelocity.z);
+        }
     }
 
     public void SetInputActive(bool active)
@@ -581,6 +601,8 @@ public class PlayerController : MonoBehaviour
         jumpBufferCounter = 0f;
         wallGrabGraceTimer = 0f;
         lastWallJumpNormal = Vector3.zero;
+        lastWallCollider = null;
+        currentWallCollider = null;
         externalForce = Vector3.zero;
 
         // Garante que o corpo volte à posição vertical imediatamente
@@ -596,8 +618,21 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    public void SetRespawnPoint(Vector3 newPos)
+    {
+        currentRespawnPosition = newPos;
+    }
+
     /// <summary>
-    /// Teleporta o jogador para a posição de respawn e restaura a postura vertical e física limpa.
+    /// Mata o jogador e o envia para o último checkpoint ativado.
+    /// </summary>
+    public void Die()
+    {
+        Respawn(currentRespawnPosition);
+    }
+
+    /// <summary>
+    /// Teleporta o jogador para a posição e restaura a postura vertical e física limpa.
     /// </summary>
     public void Respawn(Vector3 position)
     {
